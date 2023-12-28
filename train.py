@@ -60,8 +60,8 @@ print("token len",len(tokens))
 
 for i in range(epochs):
     x, y = get_batch_data(20, tokens)
-    x.to(device)
-    y.to(device)
+    x = x.to(device)
+    y = y.to(device)
     logits, loss = model(x,y)
     print("Epoch {} Loss: {}".format(i, loss))
     loss.backward()

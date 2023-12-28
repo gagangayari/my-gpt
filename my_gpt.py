@@ -4,8 +4,6 @@ from torch.nn import functional as F
 import json
 import logging 
 
-with open('config.json', 'r') as file:
-    config = json.load(file)
 
 block_size = 256
 vocab_size = 65
