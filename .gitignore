@@ -1,2 +1,4 @@
 model/
 __pycache__
+train_temp.py
+notes.txt
