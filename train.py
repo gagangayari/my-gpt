@@ -4,6 +4,9 @@ from tokenizer import my_tokenizer
 import torch
 from torch.optim.lr_scheduler import LinearLR
 import json
+from torch.utils.tensorboard import SummaryWriter
+
+writer = SummaryWriter()
 
 device = torch.device('cpu')
 
@@ -39,12 +42,30 @@ for p in model.parameters():
 
 print("Parameters {}M".format(params/1e6))
 
-    
+#%%Estimate loss
+
+@torch.no_grad()
+def estimate_loss(model):
+    out = {}
+    model.eval()    
+    for split in ['train', 'val']:
+        losses = torch.zeros(eval_iters)
+        for k in range(eval_iters):
+            x, y = get_batch_data(64, data)
+            x = x.to(device)
+            y = y.to(device)
+            logits, loss = model(x,y)
+            losses[k] = loss.item()
+        out[split] = losses.mean()
+    return out
+        
+
+          
 
 
 #%%Training
-learning_rate = 3e-6
-epochs = 20
+learning_rate = 3e-4
+epochs = 200
 
 # create a PyTorch optimizer
 optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
@@ -59,15 +80,18 @@ tokens = tokenizer.encode(data)
 print("token len",len(tokens))
 
 for i in range(epochs):
-    x, y = get_batch_data(20, tokens)
+    x, y = get_batch_data(64, tokens)
     x = x.to(device)
     y = y.to(device)
     logits, loss = model(x,y)
     print("Epoch {} Loss: {}".format(i, loss))
+    writer.add_scalar('Loss',loss,i)
+    
+    optimizer.zero_grad(set_to_none=True)
     loss.backward()
     optimizer.step()
-    print("learning rate : ",scheduler.get_lr())
-    scheduler.step()
+    # print("learning rate : ",scheduler.get_lr())
+    # scheduler.step()
 
 model.save_pretrained('model/model.bin')
 
@@ -75,7 +99,7 @@ model.save_pretrained('model/model.bin')
 
 tokens = tokenizer.encode("The news is, sir,")
 print("INput", tokens)
-gen_ids = model.generate(torch.tensor([tokens], dtype=torch.int32))
+gen_ids = model.generate(torch.tensor([tokens], dtype=torch.long).to(device))
 print("out", gen_ids)
 
 output = tokenizer.decode(gen_ids[0].tolist())

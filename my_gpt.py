@@ -9,8 +9,8 @@ block_size = 256
 vocab_size = 65
 n_embed = 512
 dropout = 0.2
-n_head = 32
-n_layer = 24
+n_head = 6
+n_layer = 6
 
 class Head(nn.Module):
     def __init__(self, head_size=16):

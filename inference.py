@@ -14,11 +14,10 @@ print("Parameters {}M".format(params/1e6))
 
 
 
-
-tokens = tokenizer.encode("The ")
-print("INput", tokens)
-gen_ids = model.generate(torch.tensor([tokens], dtype=torch.int32))
-print("out", gen_ids)
+input_ = input("Enter a sentence: ")
+tokens = tokenizer.encode(input_)
+with torch.no_grad():
+    gen_ids = model.generate(torch.tensor([tokens], dtype=torch.int32))
 
 output = tokenizer.decode(gen_ids[0].tolist())
 print("output", output)
