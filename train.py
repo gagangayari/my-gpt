@@ -2,13 +2,16 @@
 from my_gpt import my_gpt
 from tokenizer import my_tokenizer
 import torch
+import argparse
 from torch.optim.lr_scheduler import LinearLR
 import json
 from torch.utils.tensorboard import SummaryWriter
 
 writer = SummaryWriter()
-
-device = torch.device('cpu')
+if torch.backends.mps.is_available():
+    device = torch.device("mps")
+else:
+    device = torch.device('cpu')
 
 #%%Data
 with open('input.txt', 'r') as file:
@@ -43,7 +46,7 @@ for p in model.parameters():
 print("Parameters {}M".format(params/1e6))
 
 #%%Estimate loss
-
+eval_iters = 20
 @torch.no_grad()
 def estimate_loss(model):
     out = {}

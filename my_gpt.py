@@ -7,7 +7,7 @@ import logging
 
 block_size = 256
 vocab_size = 65
-n_embed = 512
+n_embed = 384
 dropout = 0.2
 n_head = 6
 n_layer = 6
@@ -91,6 +91,7 @@ class my_gpt(nn.Module):
         self.lm_head = nn.Linear(n_embed, vocab_size)
         self.sa_head = Head(vocab_size)
         self.d_blocks = nn.Sequential(*[decoder_block(n_embed=n_embed,n_heads=n_head) for _ in range(n_layer)])
+        self.ln_f = nn.LayerNorm(n_embed) # final layer norm
 
         self.apply(self._init_weights)
 
@@ -121,6 +122,7 @@ class my_gpt(nn.Module):
         # print("x1 ", x.shape)
 
         x = self.d_blocks(x) #
+        x = self.ln_f(x) # (B,T,C)
 
         logits = self.lm_head(x) ##(B,T,vocab_size)
         if targets is None:
