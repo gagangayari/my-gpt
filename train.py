@@ -1,6 +1,6 @@
 #%%
 from my_gpt import my_gpt
-from tokenizer import my_tokenizer
+from tokenizer import tokenizer
 import torch
 import argparse
 from torch.optim.lr_scheduler import LinearLR
@@ -23,7 +23,7 @@ with open('config.json', 'r') as file:
 block_size = config.get('block_size')
 
 #%% Tokenize
-tokenizer = my_tokenizer('tokenizer/')
+pt_tokenizer = tokenizer()
 
 def get_batch_data(batch_size, data):
     ix = torch.randint(len(data) - block_size, (batch_size,))
@@ -108,3 +108,38 @@ print("out", gen_ids)
 output = tokenizer.decode(gen_ids[0].tolist())
 print("output", output)
 # %%
+
+
+def start_train():
+    model = my_gpt()
+    model.load_pretrained(args.model_name_or_path)
+    model.to(device)
+    ## optimizer
+    optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate)
+
+    ##train step
+    for epoch in range(args.epochs):
+        x, y = get_batch_data(64, tokens)
+        x = x.to(device)
+        y = y.to(device)
+        logits, loss = model(x,y)
+        print("Epoch {} Loss: {}".format(epoch, loss))
+        writer.add_scalar('Loss',loss,epoch)
+        optimizer.zero_grad(set_to_none=True)
+        loss.backward()
+        optimizer.step()
+        scheduler.step()
+
+
+if __name__ == "__main__":
+    args = argparse.ArgumentParser()
+    args.add_argument("--model_name_or_path", default='model/model.bin', type=str)
+    args.add_argument("--tokenizer", default='tokenizer/', type=str)
+    args.add_argument("--epochs", default=200, type=int)
+    args.add_argument("--learning_rate", default=3e-4, type=float)
+    args.add_argument("--eval_interval", default=500, type=int)
+
+    args = args.parse_args()
+    print("Starting heree")
+    start_train()
+

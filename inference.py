@@ -1,5 +1,5 @@
 from my_gpt import my_gpt
-from tokenizer import my_tokenizer
+from my_tokenizer import my_tokenizer
 import torch
 
 tokenizer = my_tokenizer('model/')
