@@ -1,6 +1,6 @@
-from base import get_freq_pairs, merge, Tokenizer
+from .base import get_freq_pairs, merge, Tokenizer
 
-class tokenizer(Tokenizer):
+class BPE(Tokenizer):
     def __init__(self) -> None:
         super().__init__()
     
@@ -46,6 +46,7 @@ class tokenizer(Tokenizer):
         return ids
 
     def decode(self, ids):
+        print(ids)
         # given ids (list of integers), return Python string
         text_bytes = b"".join(self.vocab[idx] for idx in ids)
         text = text_bytes.decode("utf-8", errors="replace")

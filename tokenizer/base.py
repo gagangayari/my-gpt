@@ -1,4 +1,7 @@
 import json
+import os
+
+current_directory = os.path.dirname(os.path.abspath(__file__))
 
 def render_token(t: bytes) -> str:
     # pretty print a token, escaping control characters
@@ -44,6 +47,7 @@ class Tokenizer():
     ##vocab -> (int) : bytes . For all ints (0-256, 256+ from new merges)
 
     self.vocab = {}
+    self.load()
   
   
   
@@ -60,13 +64,43 @@ class Tokenizer():
         s = render_token(byte)
         f.write(f"{idx} {s}\n")
 
+  def _build_vocab(self):
+    self.vocab = {idx: bytes([idx]) for idx in range(256)}
+    try:
+      
+      for (tok0, tok1),idx in self.merges.items():
+        self.vocab[idx] = self.vocab[tok0] + self.vocab[tok1]
+    except Exception as e:
+      print(e)
+
+
+
   def load(self):
     try:
-      with open('vocab.txt', 'r') as f:
-        self.vocab = f.read()
+      # with open('vocab.txt', 'r') as f:
+      #   for i, line in enumerate(f):
+      #     print("voacb ",line.split())
+      #     idx, byteObj = line.split()
+      #     self.vocab[idx] = byteObj
 
-      with open('merges.txt', 'r') as f:
-        self.merges = f.read()
+      print("Loading")
+      with open(os.path.join(current_directory, 'merges.txt'), 'r') as file:
+      
+        idx = 256
+        for line in file:
+          tok0, tok1 = map(int,line.split())
+          self.merges[(tok0, tok1)] = idx
+          idx += 1
+
+
+      # print(self.merges)
+
+      self._build_vocab()
+
+        
+
+    
+
 
     except Exception as e:
       print(e)
@@ -75,6 +109,7 @@ class Tokenizer():
 
 
 if __name__ == '__main__':
-  print(merge([5, 6, 6, 7, 9, 1], (6, 7), 99))
+  # print(merge([5, 6, 6, 7, 9, 1], (6, 7), 99))
+  tokenizer = Tokenizer()
 
 

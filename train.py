@@ -1,8 +1,8 @@
 #%%
 from my_gpt import my_gpt
-from tokenizer import tokenizer
+from tokenizer.tokenizer import BPE
 import torch
-import argparse
+# import argparse
 from torch.optim.lr_scheduler import LinearLR
 import json
 from torch.utils.tensorboard import SummaryWriter
@@ -13,8 +13,11 @@ if torch.backends.mps.is_available():
 else:
     device = torch.device('cpu')
 
+# device = torch.device('cpu')
+
+
 #%%Data
-with open('input.txt', 'r') as file:
+with open('tinyStories.txt', 'r') as file:
     data = file.read()
 
 with open('config.json', 'r') as file:
@@ -23,7 +26,8 @@ with open('config.json', 'r') as file:
 block_size = config.get('block_size')
 
 #%% Tokenize
-pt_tokenizer = tokenizer()
+tokenizer = BPE()
+
 
 def get_batch_data(batch_size, data):
     ix = torch.randint(len(data) - block_size, (batch_size,))
@@ -68,7 +72,10 @@ def estimate_loss(model):
 
 #%%Training
 learning_rate = 3e-4
-epochs = 200
+batch_size = 30
+itr = 1000
+writer.add_scalar('learning_rate', learning_rate)
+writer.add_scalar('batch_size', batch_size)
 
 # create a PyTorch optimizer
 optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
@@ -80,10 +87,10 @@ scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.85)
 
 tokens = tokenizer.encode(data)
 
-print("token len",len(tokens))
+# print("token len",len(tokens))
 
-for i in range(epochs):
-    x, y = get_batch_data(64, tokens)
+for i in range(itr+1):
+    x, y = get_batch_data(batch_size, tokens)
     x = x.to(device)
     y = y.to(device)
     logits, loss = model(x,y)
@@ -93,10 +100,8 @@ for i in range(epochs):
     optimizer.zero_grad(set_to_none=True)
     loss.backward()
     optimizer.step()
-    # print("learning rate : ",scheduler.get_lr())
-    # scheduler.step()
-
-model.save_pretrained('model/model.bin')
+    if(i%200 == 0):
+        model.save_pretrained(f'model/model_{i}_.bin')
 
 #%%Generating
 
@@ -131,15 +136,15 @@ def start_train():
         scheduler.step()
 
 
-if __name__ == "__main__":
-    args = argparse.ArgumentParser()
-    args.add_argument("--model_name_or_path", default='model/model.bin', type=str)
-    args.add_argument("--tokenizer", default='tokenizer/', type=str)
-    args.add_argument("--epochs", default=200, type=int)
-    args.add_argument("--learning_rate", default=3e-4, type=float)
-    args.add_argument("--eval_interval", default=500, type=int)
+# if __name__ == "__main__":
+#     args = argparse.ArgumentParser()
+#     args.add_argument("--model_name_or_path", default='model/model.bin', type=str)
+#     args.add_argument("--tokenizer", default='tokenizer/', type=str)
+#     args.add_argument("--epochs", default=200, type=int)
+#     args.add_argument("--learning_rate", default=3e-4, type=float)
+#     args.add_argument("--eval_interval", default=500, type=int)
 
-    args = args.parse_args()
-    print("Starting heree")
-    start_train()
+#     args = args.parse_args()
+#     print("Starting heree")
+#     start_train()
 
