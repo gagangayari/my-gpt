@@ -4,13 +4,14 @@ from torch.nn import functional as F
 import json
 import logging 
 
-
-block_size = 256
-vocab_size = 65
+block_size = 128
+vocab_size = 500
 n_embed = 384
 dropout = 0.2
 n_head = 6
 n_layer = 6
+kv_heads = 3
+max_position_embeddings = 128
 
 class Head(nn.Module):
     def __init__(self, head_size=16):
@@ -40,18 +41,97 @@ class Head(nn.Module):
 
         return out
     
-class MultiHeadAttention(nn.Module):
-    def __init__(self,num_heads, head_size) :
-        super().__init__()
 
-        self.heads = nn.ModuleList(Head(head_size=head_size) for _ in range(num_heads))
-        self.proj = nn.Linear(head_size * num_heads, n_embed)
+# Copied from transformers.models.llama.modeling_llama.repeat_kv
+def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
+    """
+    This is the equivalent of torch.repeat_interleave(x, dim=1, repeats=n_rep). The hidden states go from (batch,
+    num_key_value_heads, seqlen, head_dim) to (batch, num_attention_heads, seqlen, head_dim)
+    """
+    batch, num_key_value_heads, slen, head_dim = hidden_states.shape
+    if n_rep == 1:
+        return hidden_states
+    hidden_states = hidden_states[:, :, None, :, :].expand(batch, num_key_value_heads, n_rep, slen, head_dim)
+    return hidden_states.reshape(batch, num_key_value_heads * n_rep, slen, head_dim)
+
+
+class MultiHeadAttention(nn.Module):
+    def __init__(self,num_heads, head_dim) :
+        super().__init__()
+        assert num_heads%kv_heads == 0
+        self.n_embed = n_embed
+        self.num_attn_heads = num_heads
+        self.head_dim = head_dim
+        self.kv_heads = kv_heads
+        # self.kv_out_proj = head_dim *  self.kv_heads #Doubt
+        self.num_kv_groups = self.num_attn_heads // self.kv_heads
+
+
+        self.heads = nn.ModuleList(Head(head_size=head_dim) for _ in range(num_heads))
+        ##Only self attention
+
+        #For num_attn_heads number of heads
+        self.Wq = nn.Linear(self.n_embed, self.num_attn_heads*self.head_dim)
+        #For kv_heads number of heads
+        self.Wk = nn.Linear(self.n_embed, self.kv_heads * self.head_dim)
+        self.Wv = nn.Linear(self.n_embed, self.kv_heads * self.head_dim)
+
+        self.o_proj = nn.Linear(self.head_dim * self.num_attn_heads, self.n_embed)
         self.dropout = nn.Dropout(dropout)
 
-    def forward(self, x):
-        out = torch.cat([h(x) for h in self.heads], dim=-1)
-        out = self.dropout(self.proj(out))
-        return out
+        # self.attention_mask = torch.zeros((bsz, self.num_attn_heads, qlen, qlen))
+        # self.attention_mask[:, :, :, qlen:] = float('-inf')  # Mask out positions beyond the key sequence length
+
+
+    def forward(self, x, attn_mask= None):
+        """
+        Parameters:
+            x (bsz, qlen, embed) : input
+        """
+        # out = torch.cat([h(x) for h in self.heads], dim=-1)
+        # attn_output = self.dropout(self.o_proj(out))
+
+        # ################ Experiment
+
+
+        bsz, qlen, embed = x.size()
+
+        q = self.Wq(x) ##(B,T,head_dim * num_heads)
+        k = self.Wk(x) ##(B,T,head_dim * kv_heads)
+        v = self.Wv(x) ##(B,T,head_dim * kv_heads)
+
+
+
+        q = q.view(bsz, qlen, self.num_attn_heads, self.head_dim).transpose(2,1)  ##(B,T,head_dim * num_heads)
+        k = k.view(bsz, qlen, self.kv_heads, self.head_dim).transpose(2,1) ##(B,T,head_dim * kv_heads)
+        v = v.view(bsz, qlen, self.kv_heads, self.head_dim).transpose(2,1)  ##(B,T,head_dim * kv_heads)
+
+        # print("k-shape before ",k.shape)
+        k = repeat_kv(k, self.num_kv_groups) ##(B, n_kvheads * nrep, qlen, head_dim)
+        v = repeat_kv(v, self.num_kv_groups)
+
+        attn_scores = q @ k.transpose(-1,-2)/torch.sqrt(torch.tensor(self.n_embed)) ##(B, T, block_size)
+
+        ################
+        
+        if attn_mask is not None:
+            # causal_mask = attn_mask[:, :, :, : k.shape[-2]]
+            # attn_scores = attn_scores + causal_mask
+            attn_scores = attn_scores.masked_fill(
+                attn_mask[None, None, :qlen, :qlen]==0 , float("-inf")
+            )
+
+
+        attn_scores = F.softmax(attn_scores, dim=-1)
+        attn_scores = F.dropout(attn_scores) ##Why this dropout is required??
+
+        attn_output = torch.matmul(attn_scores, v) ##(B, n_heads, qlen, hidden_size)
+        attn_output = attn_output.transpose(1,2).contiguous()    
+        attn_output = attn_output.view(bsz, qlen, self.n_embed)
+
+        attn_output = self.o_proj(attn_output)
+        return attn_output
+
 
 class FeedForward(nn.Module):
     def __init__(self,n_embed) -> None:
@@ -68,26 +148,32 @@ class FeedForward(nn.Module):
         return x
 
 class decoder_block(nn.Module):
-    def __init__(self, n_embed, n_heads):
+    def __init__(self, n_embed, n_heads, attn_mask=None):
         super().__init__()
-        self.sa = MultiHeadAttention(n_heads,n_embed//n_heads)
+        # Assume 0 for allowed positions and -inf for masked positions
+        
+        self.sa = MultiHeadAttention(n_heads,n_embed//n_head)
         self.ln1 = nn.LayerNorm(n_embed)
         self.ln2 = nn.LayerNorm(n_embed)
         self.ffwd = FeedForward(n_embed)
+        self.register_buffer('causal_mask',torch.tril(torch.ones(block_size,block_size)))
+
+
 
     def forward(self, x):
-        x = x + self.sa(self.ln1(x))
+        x = x + self.sa(self.ln1(x), attn_mask = self.causal_mask)
         x = x + self.ffwd(self.ln2(x))
         return x
 
 
 
 class my_gpt(nn.Module):
-    def __init__(self, block_size = 256):
+    def __init__(self, device="cpu", block_size = 256):
         super().__init__()
+        self.device = device
         self.block_size = block_size ##context window size
         self.token_embed = nn.Embedding(vocab_size, n_embed)
-        self.pos_embed = nn.Embedding(vocab_size, n_embed)
+        self.pos_embed = nn.Embedding(max_position_embeddings, n_embed)
         self.lm_head = nn.Linear(n_embed, vocab_size)
         self.sa_head = Head(vocab_size)
         self.d_blocks = nn.Sequential(*[decoder_block(n_embed=n_embed,n_heads=n_head) for _ in range(n_layer)])
@@ -103,23 +189,22 @@ class my_gpt(nn.Module):
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
-    def forward(self, idx, targets = None):
+    def forward(self, x, targets = None):
         """
         Args:
-            idx: int(B,T) Token ids
+            x: int(B,T) Token ids
             targets :
 
         Returns:
             logits
         """
-        # print("idx ", idx)
-        B, T = idx.shape ##
-        tok_emd = self.token_embed(idx) ##(B,T,C)
-        pos_emd = self.pos_embed(idx)
+        B, T = x.size() ##
+        tok_emd = self.token_embed(x) ##(B,T,C)
+        position_ids = torch.arange(T, device = self.device )
+        pos_emd = self.pos_embed(position_ids)
 
         
         x = tok_emd + pos_emd
-        # print("x1 ", x.shape)
 
         x = self.d_blocks(x) #
         x = self.ln_f(x) # (B,T,C)
@@ -129,12 +214,10 @@ class my_gpt(nn.Module):
             loss = None
         else:
             B, T, C = logits.shape
-            # print("logits ", logits.shape)
             logits = logits.view(B*T,C)
             targets = targets.view(B*T)
 
             loss = F.cross_entropy(logits, targets)
-        # print("Logits", logits.shape)
             
         return logits, loss
 
@@ -150,7 +233,6 @@ class my_gpt(nn.Module):
         Returns:
             [token] : List of generated tokens.
         """
-        # print("Context:" , context)
         for _ in range(max_new_tokens): 
             ##Take only last allowed number of tokens
             idx_tokens = context[:, -self.block_size:]
@@ -160,7 +242,6 @@ class my_gpt(nn.Module):
 
             ##Take only last allowed number of tokens
             logits = logits[:,-1,:] ##(B,vocab_size)
-            # print("logits:" , logits.shape)
 
             probs = F.softmax(logits, dim= -1)
             idx_next = torch.multinomial(probs,num_samples=1) ##(B,1)

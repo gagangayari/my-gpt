@@ -6,6 +6,8 @@ import torch
 from torch.optim.lr_scheduler import LinearLR
 import json
 from torch.utils.tensorboard import SummaryWriter
+from transformers import AutoTokenizer
+
 
 writer = SummaryWriter()
 if torch.backends.mps.is_available():
@@ -13,7 +15,7 @@ if torch.backends.mps.is_available():
 else:
     device = torch.device('cpu')
 
-# device = torch.device('cpu')
+device = torch.device('cpu')
 
 
 #%%Data
@@ -27,6 +29,7 @@ block_size = config.get('block_size')
 
 #%% Tokenize
 tokenizer = BPE()
+# tokenizer = AutoTokenizer.from_pretrained('../../phi-2')
 
 
 def get_batch_data(batch_size, data):
@@ -38,7 +41,7 @@ def get_batch_data(batch_size, data):
 
 #%%Model
 
-model = my_gpt()
+model = my_gpt(device=device)
 
 
 model.to(device)
@@ -72,8 +75,8 @@ def estimate_loss(model):
 
 #%%Training
 learning_rate = 3e-4
-batch_size = 30
-itr = 1000
+batch_size = 10
+n_steps = 1000
 writer.add_scalar('learning_rate', learning_rate)
 writer.add_scalar('batch_size', batch_size)
 
@@ -84,24 +87,25 @@ lambda1 = lambda epoch: 0.85 ** epoch
 scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.85)
 
 
-
+print("Encoding data")
 tokens = tokenizer.encode(data)
 
-# print("token len",len(tokens))
+print("Started training ---->")
 
-for i in range(itr+1):
+
+for i in range(n_steps+1):
     x, y = get_batch_data(batch_size, tokens)
     x = x.to(device)
     y = y.to(device)
     logits, loss = model(x,y)
-    print("Epoch {} Loss: {}".format(i, loss))
+    print("step {} Loss: {}".format(i, loss))
     writer.add_scalar('Loss',loss,i)
     
     optimizer.zero_grad(set_to_none=True)
     loss.backward()
     optimizer.step()
     if(i%200 == 0):
-        model.save_pretrained(f'model/model_{i}_.bin')
+        model.save_pretrained(f'model_new_arch/model_{i}_.bin')
 
 #%%Generating
 
@@ -115,25 +119,25 @@ print("output", output)
 # %%
 
 
-def start_train():
-    model = my_gpt()
-    model.load_pretrained(args.model_name_or_path)
-    model.to(device)
-    ## optimizer
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate)
+# def start_train():
+#     model = my_gpt()
+#     model.load_pretrained(args.model_name_or_path)
+#     model.to(device)
+#     ## optimizer
+#     optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate)
 
-    ##train step
-    for epoch in range(args.epochs):
-        x, y = get_batch_data(64, tokens)
-        x = x.to(device)
-        y = y.to(device)
-        logits, loss = model(x,y)
-        print("Epoch {} Loss: {}".format(epoch, loss))
-        writer.add_scalar('Loss',loss,epoch)
-        optimizer.zero_grad(set_to_none=True)
-        loss.backward()
-        optimizer.step()
-        scheduler.step()
+#     ##train step
+#     for epoch in range(args.epochs):
+#         x, y = get_batch_data(64, tokens)
+#         x = x.to(device)
+#         y = y.to(device)
+#         logits, loss = model(x,y)
+#         print("Epoch {} Loss: {}".format(epoch, loss))
+#         writer.add_scalar('Loss',loss,epoch)
+#         optimizer.zero_grad(set_to_none=True)
+#         loss.backward()
+#         optimizer.step()
+#         scheduler.step()
 
 
 # if __name__ == "__main__":
